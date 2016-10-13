@@ -34,7 +34,8 @@ non_recurrent_projection_dim=256
 chunk_width=20
 chunk_left_context=40
 chunk_right_context=0
-
+highway_lstm=false 
+highway_lstm_h_rec=false
 
 # training options
 srand=0
@@ -73,7 +74,10 @@ suffix=
 if [ "$speed_perturb" == "true" ]; then
   suffix=_sp
 fi
-dir=exp/nnet3/lstm
+if [ "highway_lstm" = "true" ]; then
+  dir=exp/nnet3/lstm_highway
+if [ "highway_lstm" = "false" ]; then
+  dir=exp/nnet3/lstm
 dir=$dir${affix:+_$affix}
 if [ $label_delay -gt 0 ]; then dir=${dir}_ld$label_delay; fi
 dir=${dir}$suffix
@@ -101,6 +105,8 @@ if [ $stage -le 9 ]; then
     --label-delay $label_delay \
     --self-repair-scale-nonlinearity 0.00001 \
     --self-repair-scale-clipgradient 1.0 \
+    --highway-lstm $highway_lstm \
+    --highway-lstm-h-rec $highway_lstm_h_rec \
    $dir/configs || exit 1;
 
 fi

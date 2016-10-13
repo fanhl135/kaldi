@@ -286,6 +286,8 @@ def AddLstmLayer(config_lines,
                  norm_based_clipping = "false",
                  ng_per_element_scale_options = "",
                  ng_affine_options = "",
+                 highway_lstm="false",
+                 highway_lstm_h_rec="false",
                  lstm_delay = -1,
                  self_repair_scale_nonlinearity = None,
                  self_repair_scale_clipgradient = None):
@@ -296,6 +298,13 @@ def AddLstmLayer(config_lines,
     input_descriptor = input['descriptor']
     input_dim = input['dimension']
     name = name.strip()
+    highway_lstm = highway_lstm.strip()
+    highway_lstm_h_rec = highway_lstm_h_rec.strip()
+    print (highway_lstm+" highway_lstm\n")
+    print (highway_lstm_h_rec+" highway_lstm_h_rec\n")
+    add_layer_num_str = str(add_layer_num)
+    print (add_layer_num_str+" layer\n")
+    name_layer_minus1 = name_layer_minus1.strip() 
 
     if (recurrent_projection_dim == 0):
         add_recurrent_projection = False
@@ -335,6 +344,21 @@ def AddLstmLayer(config_lines,
     components.append("# Cell input matrices : W_c* matrices")
     components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
 
+    if ((highway_lstm == "true" and add_layer_num_str != "0" ) and highway_lstm_h_rec == "false"):
+        components.append("# HLSTM gate control : W_d* matrices")
+        components.append("component name={0}_W_d-xd type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim , cell_dim, ng_affine_options))
+        components.append("# note : the cell outputs pass through a diagonal matrix")
+        components.append("component name={0}_W_d-cd1 type=NaturalGradientPerElementScaleComponent dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
+        components.append("# note : the cell outputs pass through a diagonal matrix")
+        components.append("component name={0}_W_d-cd2 type=NaturalGradientPerElementScaleComponent dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
+
+    if ((highway_lstm == "true" and add_layer_num_str != "0" ) and highway_lstm_h_rec == "true"):
+        components.append("# HLSTM gate control : W_d* matrices")
+        components.append("component name={0}_W_d-xd type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim , cell_dim, ng_affine_options))
+        components.append("# note : the cell outputs pass through a diagonal matrix")
+        components.append("component name={0}_W_d-cd1 type=NaturalGradientPerElementScaleComponent dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
+        components.append("# note : the cell outputs pass through a diagonal matrix")
+        components.append("component name={0}_W_d-cd2 type=NaturalGradientPerElementScaleComponent dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))    
 
     components.append("# Defining the non-linearities")
     components.append("component name={0}_i type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
@@ -343,14 +367,22 @@ def AddLstmLayer(config_lines,
     components.append("component name={0}_g type=TanhComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
     components.append("component name={0}_h type=TanhComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
 
+    if (highway_lstm == "true" and add_layer_num_str != "0" ):
+        components.append("component name={0}_d type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_string))
+
     components.append("# Defining the cell computations")
     components.append("component name={0}_c1 type=ElementwiseProductComponent input-dim={1} output-dim={2}".format(name, 2 * cell_dim, cell_dim))
     components.append("component name={0}_c2 type=ElementwiseProductComponent input-dim={1} output-dim={2}".format(name, 2 * cell_dim, cell_dim))
     components.append("component name={0}_m type=ElementwiseProductComponent input-dim={1} output-dim={2}".format(name, 2 * cell_dim, cell_dim))
     components.append("component name={0}_c type=ClipGradientComponent dim={1} clipping-threshold={2} norm-based-clipping={3} {4}".format(name, cell_dim, clipping_threshold, norm_based_clipping, self_repair_clipgradient_string))
-
+    if (highway_lstm == "true" and add_layer_num_str != "0" ) :
+        components.append("component name={0}_c3 type=ElementwiseProductComponent input-dim={1} output-dim={2}".format(name, 2 * cell_dim, cell_dim))
     # c1_t and c2_t defined below
-    component_nodes.append("component-node name={0}_c_t component={0}_c input=Sum({0}_c1_t, {0}_c2_t)".format(name))
+    if (highway_lstm == "true" and add_layer_num_str != "0" ):
+        component_nodes.append("component-node name={0}_c_t component={0}_c input=Sum(Sum({0}_c1_t, {0}_c2_t), {0}_c3_t)".format(name))#revised and added by SummitCheng
+    else:
+        component_nodes.append("component-node name={0}_c_t component={0}_c input=Sum({0}_c1_t, {0}_c2_t)".format(name))
+    
     c_tminus1_descriptor = "IfDefined(Offset({0}_c_t, {1}))".format(name, lstm_delay)
 
     component_nodes.append("# i_t")
@@ -375,9 +407,22 @@ def AddLstmLayer(config_lines,
     component_nodes.append("component-node name={0}_g1 component={0}_W_c-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
     component_nodes.append("component-node name={0}_g_t component={0}_g input={0}_g1".format(name))
 
+    if (highway_lstm == "true" and add_layer_num_str != "0" ):
+        component_nodes.append("# d_t")
+        component_nodes.append("component-node name={0}_d_t component={0}_d input=Sum({0}_d1_t, Sum({0}_d2_t, {0}_d3_t))".format(name))
+        if (highway_lstm_h_rec == "false"):
+            component_nodes.append("component-node name={0}_d1_t component={0}_W_d-xd input={1}".format(name, input_descriptor))
+        if (highway_lstm_h_rec == "true"):
+            component_nodes.append("component-node name={0}_d1_t component={0}_W_d-xd input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))       
+        component_nodes.append("component-node name={0}_d2_t component={0}_W_d-cd1 input={1}".format(name, c_tminus1_descriptor))
+        component_nodes.append("component-node name={0}_d3_t component={0}_W_d-cd2 input={1}_c_t".format(name, name_layer_minus1))
+
     component_nodes.append("# parts of c_t")
     component_nodes.append("component-node name={0}_c1_t component={0}_c1  input=Append({0}_f_t, {1})".format(name, c_tminus1_descriptor))
     component_nodes.append("component-node name={0}_c2_t component={0}_c2 input=Append({0}_i_t, {0}_g_t)".format(name))
+
+    if (highway_lstm == "true" and add_layer_num_str != "0" ):
+        component_nodes.append("component-node name={0}_c3_t component={0}_c3 input=Append({1}_c_t,{0}_d_t)".format(name,name_layer_minus1))
 
     component_nodes.append("# m_t")
     component_nodes.append("component-node name={0}_m_t component={0}_m input=Append({0}_o_t, {0}_h_t)".format(name))
