@@ -7,6 +7,7 @@
 #%WER 19.3 | 2628 21594 | 83.3 11.8 4.9 2.5 19.3 54.8 | exp/chain/blstm_6h_sp/decode_eval2000_sw1_fsh_fg/score_9_0.0/eval2000_hires.ctm.callhm.filt.sys
 #%WER 13.32 [ 6554 / 49204, 830 ins, 1696 del, 4028 sub ] exp/chain/blstm_6h_sp/decode_train_dev_sw1_fsh_fg/wer_10_0.0
 
+# if dropout_opts is not blank, then the c_t and m_t components in LSTM will be appended dropout components 
 set -e
 
 # configs for 'chain'
@@ -26,6 +27,8 @@ chunk_right_context=40
 xent_regularize=0.025
 self_repair_scale=0.00001
 label_delay=0
+dropout_schedule="0.3 0.2 0.1 0.0" # Note: the len of dropout_schedule should equal epoch num 
+num_training_epochs=4
 # decode options
 extra_left_context=
 extra_right_context=
@@ -105,13 +108,16 @@ if [ $stage -le 11 ]; then
       --cmd "$train_cmd" 9000 data/$train_set $lang $ali_dir $treedir
 fi
 repair_opts=${self_repair_scale:+" --self-repair-scale-nonlinearity $self_repair_scale "}
+dropout_opts=${dropout_schedule:+"--dropout-schedule=$dropout_schedule"}
 if [ $stage -le 12 ]; then
   echo "$0: creating neural net configs";
 
   steps/nnet3/lstm/make_configs.py  \
     $repair_opts \
+    $dropout_opts \
     --feat-dir data/${train_set}_hires \
     --ivector-dir exp/nnet3/ivectors_${train_set} \
+    --num-training-epochs $num_training_epochs \
     --tree-dir $treedir \
     --splice-indexes="-2,-1,0,1,2 0 0" \
     --lstm-delay=" [-3,3] [-3,3] [-3,3] " \
@@ -148,7 +154,7 @@ if [ $stage -le 13 ]; then
     --trainer.num-chunk-per-minibatch 64 \
     --trainer.frames-per-iter 1200000 \
     --trainer.max-param-change 2.0 \
-    --trainer.num-epochs 4 \
+    --trainer.num-epochs $num_training_epoch \
     --trainer.optimization.shrink-value 0.99 \
     --trainer.optimization.num-jobs-initial 3 \
     --trainer.optimization.num-jobs-final 16 \

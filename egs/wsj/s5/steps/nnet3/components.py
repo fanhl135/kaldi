@@ -280,6 +280,7 @@ def AddFinalLayer(config_lines, input, output_dim,
 
 def AddLstmLayer(config_lines,
                  name, input, cell_dim,
+                 dropout_schedule = [-1],
                  recurrent_projection_dim = 0,
                  non_recurrent_projection_dim = 0,
                  clipping_threshold = 1.0,
@@ -318,23 +319,38 @@ def AddLstmLayer(config_lines,
     ng_per_element_scale_options += " param-mean=0.0 param-stddev=1.0 "
     # Parameter Definitions W*(* replaced by - to have valid names)
     components.append("# Input gate control : W_i* matrices")
-    components.append("component name={0}_W_i-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    if len(dropout_schedule) == 1:
+        components.append("component name={0}_W_i-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    else:
+        components.append("component name={0}_W_i-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
+        components.append("component name={0}_W_i-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
     components.append("# note : the cell outputs pass through a diagonal matrix")
     components.append("component name={0}_w_ic type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
 
     components.append("# Forget gate control : W_f* matrices")
-    components.append("component name={0}_W_f-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    if len(dropout_schedule) == 1:
+        components.append("component name={0}_W_f-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    else:
+        components.append("component name={0}_W_f-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
+        components.append("component name={0}_W_f-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
     components.append("# note : the cell outputs pass through a diagonal matrix")
     components.append("component name={0}_w_fc type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
 
     components.append("#  Output gate control : W_o* matrices")
-    components.append("component name={0}_W_o-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    if len(dropout_schedule) == 1:
+        components.append("component name={0}_W_o-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    else:
+        components.append("component name={0}_W_o-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
+        components.append("component name={0}_W_o-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
     components.append("# note : the cell outputs pass through a diagonal matrix")
     components.append("component name={0}_w_oc type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
 
     components.append("# Cell input matrices : W_c* matrices")
-    components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
-
+    if len(dropout_schedule) == 1:
+        components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+    else:
+        components.append("component name={0}_W_c-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
+        components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
 
     components.append("# Defining the non-linearities")
     components.append("component name={0}_i type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
@@ -427,14 +443,16 @@ def AddBLstmLayer(config_lines,
                   self_repair_scale_nonlinearity = None,
                   self_repair_scale_clipgradient = None):
     assert(len(lstm_delay) == 2 and lstm_delay[0] < 0 and lstm_delay[1] > 0)
-    output_forward = AddLstmLayer(config_lines, "{0}_forward".format(name), input, cell_dim,
+    output_forward = AddLstmLayer(config_lines, "{0}_forward".format(name),
+                                  input, cell_dim, dropout_schedule,
                                   recurrent_projection_dim, non_recurrent_projection_dim,
                                   clipping_threshold, norm_based_clipping,
                                   ng_per_element_scale_options, ng_affine_options,
                                   lstm_delay = lstm_delay[0],
                                   self_repair_scale_nonlinearity = self_repair_scale_nonlinearity,
                                   self_repair_scale_clipgradient = self_repair_scale_clipgradient)
-    output_backward = AddLstmLayer(config_lines, "{0}_backward".format(name), input, cell_dim,
+    output_backward = AddLstmLayer(config_lines, "{0}_backward".format(name),
+                                   input, cell_dim, dropout_schedule,
                                    recurrent_projection_dim, non_recurrent_projection_dim,
                                    clipping_threshold, norm_based_clipping,
                                    ng_per_element_scale_options, ng_affine_options,

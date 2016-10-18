@@ -50,6 +50,8 @@ def GetArgs():
                         default=0.0)
     parser.add_argument("--include-log-softmax", type=str, action=nnet3_train_lib.StrToBoolAction,
                         help="add the final softmax layer ", default=True, choices = ["false", "true"])
+    parser.add_argument("--num-training-epochs", type=int,
+                         help="Number of neural network training epochs")
 
     # LSTM options
     parser.add_argument("--num-lstm-layers", type=int,
@@ -69,6 +71,9 @@ def GetArgs():
     parser.add_argument("--ng-affine-options", type=str,
                         help="options to be supplied to NaturalGradientAffineComponent", default="")
 
+    # Dropout options
+    parser.add_argument("--dropout-schedule", type=str, default=None,
+                        help="option to apply dropout components to the recurrent components in LSTM")
     # Gradient clipper options
     parser.add_argument("--norm-based-clipping", type=str, action=nnet3_train_lib.StrToBoolAction,
                         help="use norm based clipping in ClipGradient components ", default=True, choices = ["false", "true"])
@@ -136,6 +141,15 @@ def CheckArgs(args):
         if len(args.lstm_delay) != args.num_lstm_layers:
             sys.exit("--lstm-delay: Number of delays provided has to match --num-lstm-layers")
 
+    if args.dropout_schedule is None:
+        args.dropout_schedule = [-1]
+    else:
+        try:
+            args.dropout_schedule = ParseLSTMDropoutScheduleString(args.dropout_schedule.strip())
+        except ValueError:
+            sys.exit("--dropout-schedule has incorrect format value. Provided value is '{0}'".format(args.dropout_schedule))
+        if len(args.dropout_schedule) != args.num_training_epochs:
+            sys.exit("--dropout-schedule: Length of dropout-schedule provided has to match preset training epochs ")
     return args
 
 def PrintConfig(file_name, config_lines):
@@ -208,8 +222,24 @@ def ParseLstmDelayString(lstm_delay):
     return lstm_delay_array
 
 
+def ParseLSTMDropoutScheduleString(dropout_schedule):
+    ## Parse the dropout_schedule e.g. "0.4 0.3 0.2 0.1"
+    split1 = dropout_schedule.split(" ");
+    dropout_schedule_array = []
+    try:
+        for i in range(len(split1)):
+            dropout_proportion = map(lambda x: float(x), split1[i].strip())
+            if (dropout_proportion < 0) or (dropout_proportion>1):
+                raise ValueError("invalid --dropout-schedule argument, proportion exceed bond [0,1] :"
+                                 + dropout_schedule) 
+            dropout_schedule_array.append(dropout_proportion)
+    except ValueError as e:
+        raise ValueError("invalid --dropout-schedule argument "+ dropout_schedule + str(e))
+    
+    return dropout_schedule_array
+
 def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
-                splice_indexes, lstm_delay, cell_dim, hidden_dim,
+                splice_indexes, lstm_delay, dropout_schedule, cell_dim, hidden_dim,
                 recurrent_projection_dim, non_recurrent_projection_dim,
                 num_lstm_layers, num_hidden_layers,
                 norm_based_clipping, clipping_threshold,
@@ -234,18 +264,22 @@ def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
     for i in range(num_lstm_layers):
         if len(lstm_delay[i]) == 2: # add a bi-directional LSTM layer
             prev_layer_output = nodes.AddBLstmLayer(config_lines, "BLstm{0}".format(i+1),
-                                                    prev_layer_output, cell_dim,
+                                                    prev_layer_output, cell_dim, dropout_schedule,
                                                     recurrent_projection_dim, non_recurrent_projection_dim,
                                                     clipping_threshold, norm_based_clipping,
                                                     ng_per_element_scale_options, ng_affine_options,
-                                                    lstm_delay = lstm_delay[i], self_repair_scale_nonlinearity = self_repair_scale_nonlinearity, self_repair_scale_clipgradient = self_repair_scale_clipgradient)
+                                                    lstm_delay = lstm_delay[i],
+                                                    self_repair_scale_nonlinearity = self_repair_scale_nonlinearity,
+                                                    self_repair_scale_clipgradient = self_repair_scale_clipgradient)
         else: # add a uni-directional LSTM layer
             prev_layer_output = nodes.AddLstmLayer(config_lines, "Lstm{0}".format(i+1),
-                                                   prev_layer_output, cell_dim,
+                                                   prev_layer_output, cell_dim, dropout_schedule,
                                                    recurrent_projection_dim, non_recurrent_projection_dim,
                                                    clipping_threshold, norm_based_clipping,
                                                    ng_per_element_scale_options, ng_affine_options,
-                                                   lstm_delay = lstm_delay[i][0], self_repair_scale_nonlinearity = self_repair_scale_nonlinearity, self_repair_scale_clipgradient = self_repair_scale_clipgradient)
+                                                   lstm_delay = lstm_delay[i][0],
+                                                   self_repair_scale_nonlinearity = self_repair_scale_nonlinearity,
+                                                   self_repair_scale_clipgradient = self_repair_scale_clipgradient)
         # make the intermediate config file for layerwise discriminative
         # training
         nodes.AddFinalLayer(config_lines, prev_layer_output, num_targets, ng_affine_options, label_delay = label_delay, include_log_softmax = include_log_softmax)
@@ -312,6 +346,7 @@ def Main():
                 feat_dim = args.feat_dim, ivector_dim = args.ivector_dim,
                 num_targets = args.num_targets,
                 splice_indexes = splice_indexes, lstm_delay = args.lstm_delay,
+                dropout_schedule = args.dropout_schedule,
                 cell_dim = args.cell_dim,
                 hidden_dim = args.hidden_dim,
                 recurrent_projection_dim = args.recurrent_projection_dim,
