@@ -51,7 +51,7 @@ def GetArgs():
     parser.add_argument("--include-log-softmax", type=str, action=nnet3_train_lib.StrToBoolAction,
                         help="add the final softmax layer ", default=True, choices = ["false", "true"])
     parser.add_argument("--num-training-epochs", type=int,
-                         help="Number of neural network training epochs")
+                        help="Number of neural network training epochs")
 
     # LSTM options
     parser.add_argument("--num-lstm-layers", type=int,
@@ -224,11 +224,11 @@ def ParseLstmDelayString(lstm_delay):
 
 def ParseLSTMDropoutScheduleString(dropout_schedule):
     ## Parse the dropout_schedule e.g. "0.4 0.3 0.2 0.1"
-    split1 = dropout_schedule.split(" ");
+    split1 = dropout_schedule.split(" ")
     dropout_schedule_array = []
     try:
         for i in range(len(split1)):
-            dropout_proportion = map(lambda x: float(x), split1[i].strip())
+            dropout_proportion = float(split1[i].strip())
             if (dropout_proportion < 0) or (dropout_proportion>1):
                 raise ValueError("invalid --dropout-schedule argument, proportion exceed bond [0,1] :"
                                  + dropout_schedule) 

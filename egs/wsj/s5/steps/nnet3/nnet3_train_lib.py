@@ -478,6 +478,18 @@ def GetLearningRate(iter, num_jobs, num_iters, num_archives_processed,
 
     return num_jobs * effective_learning_rate
 
+def GetDropoutProportion(iter, num_iters, num_epochs, dropout_schedule):
+    # convert the dropout_schedule into list, and return the dropout_proportion
+    #it's assuming that dropout_schedule has passed the make_configs.py check
+    split1 = dropout_schedule.strip().split(" ")
+    dropout_schedule_array = []
+    for i in range(len(split1)):
+        dropout_proportion = float(split1[i].strip())
+        dropout_schedule_array.append(dropout_proportion)
+
+    current_epoch = int(float(iter / num_iters) * num_epochs)
+    return dropout_schedule_array[current_epoch]
+
 def DoShrinkage(iter, model_file, non_linearity, shrink_threshold):
 
     if iter == 0:

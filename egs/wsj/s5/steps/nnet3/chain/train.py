@@ -219,6 +219,8 @@ def GetArgs():
                         " compared with shrink-threshold. Be careful to specify"
                         " a shrink-threshold which is dependent on the"
                         " shrink-nonlinearity type")
+    parser.add_argument("--trainer.optimization.dropout-schedule", type=str, dest="dropout_schedule",
+                        default = None, help="option to apply dropout components to the recurrent components in LSTM")
 
     # RNN specific trainer options
     parser.add_argument("--trainer.num-chunk-per-minibatch", type=int, dest='num_chunk_per_minibatch',
@@ -402,7 +404,7 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
 
 def TrainOneIteration(dir, iter, srand, egs_dir,
                       num_jobs, num_archives_processed, num_archives,
-                      learning_rate, shrinkage_value, num_chunk_per_minibatch,
+                      learning_rate, dropout_proportion, shrinkage_value, num_chunk_per_minibatch,
                       num_hidden_layers, add_layers_period,
                       apply_deriv_weights, left_deriv_truncate, right_deriv_truncate,
                       l2_regularize, xent_regularize, leaky_hmm_coefficient,
@@ -439,13 +441,20 @@ def TrainOneIteration(dir, iter, srand, egs_dir,
                            # best.
         cur_num_hidden_layers = 1 + iter / add_layers_period
         config_file = "{0}/configs/layer{1}.config".format(dir, cur_num_hidden_layers)
-        raw_model_string = "nnet3-am-copy --raw=true --learning-rate={lr} {dir}/{iter}.mdl - | nnet3-init --srand={srand} - {config} - |".format(lr=learning_rate, dir=dir, iter=iter, srand=iter + srand, config=config_file)
+        if dropout_proportion == None:
+            raw_model_string = "nnet3-am-copy --raw=true --learning-rate={lr} {dir}/{iter}.mdl - | nnet3-init --srand={srand} - {config} - |".format(lr=learning_rate, dir=dir, iter=iter, srand=iter + srand, config=config_file)
+        else:
+            raw_model_string = " nnet3-am-copy --raw=true --learning-rate={lr} {dir}/{iter}.mdl - | nnet3-copy --learning_rate={lr} --set-dropout-proportion={dp} - - | nnet3-init --srand={srand} - {config} - |" \
+            .format(lr=learning_rate, dp=dropout_proportion, dir=dir, iter=iter, srand=iter + srand, config=config_file)
         cache_io_opts = ""
     else:
         do_average = True
         if iter == 0:
             do_average = False   # on iteration 0, pick the best, don't average.
-        raw_model_string = "nnet3-am-copy --raw=true --learning-rate={0} {1}/{2}.mdl - |".format(learning_rate, dir, iter)
+        if dropout_proportion == None:
+            raw_model_string = "nnet3-am-copy --raw=true --learning-rate={0} {1}/{2}.mdl - " .format(learning_rate, dir, iter)
+        else:
+            raw_model_string = "nnet3-am-copy --raw=true --learning-rate={0} {1}/{2}.mdl - | nnet3-copy --learning-rate={0} --set-dropout-proportion={3} - -".format(learning_rate, dir, iter, dropout_proportion)
         cache_io_opts = "--read-cache={dir}/cache.{iter}".format(dir = dir, iter = iter)
 
     if do_average:
@@ -543,7 +552,6 @@ def Train(args, run_opts):
 
     config_dir = '{0}/configs'.format(args.dir)
     var_file = '{0}/vars'.format(config_dir)
-
     [model_left_context, model_right_context, num_hidden_layers] = train_lib.ParseModelConfigVarsFile(var_file)
     # Initialize as "raw" nnet, prior to training the LDA-like preconditioning
     # matrix.  This first config just does any initial splicing that we do;
@@ -565,11 +573,19 @@ def Train(args, run_opts):
     """.format(command = run_opts.command,
                dir = args.dir))
 
+    if (args.stage <= -4):
+        logger.info("copy the init.raw to init.txt")
+        train_lib.RunKaldiCommand("""
+{command} {dir}/log/nnet_init_raw_see.log \
+    nnet3-copy --binary=false {dir}/init.raw {dir}/init.txt
+    """.format(command = run_opts.command,
+               dir = args.dir))
+
     left_context = args.chunk_left_context + model_left_context
     right_context = args.chunk_right_context + model_right_context
 
     default_egs_dir = '{0}/egs'.format(args.dir)
-    if (args.stage <= -3) and args.egs_dir is None:
+    if (args.stage <= -100) and args.egs_dir is None:
         logger.info("Generating egs")
         # this is where get_egs.sh is called.
         chain_lib.GenerateChainEgs(args.dir, args.feat_dir, args.lat_dir, default_egs_dir,
@@ -633,10 +649,12 @@ def Train(args, run_opts):
                                                    args.num_jobs_final)
 
     learning_rate = lambda iter, current_num_jobs, num_archives_processed: train_lib.GetLearningRate(iter, current_num_jobs, num_iters,
-                                                                                           num_archives_processed,
-                                                                                           num_archives_to_process,
-                                                                                           args.initial_effective_lrate,
-                                                                                           args.final_effective_lrate)
+                                                                                                     num_archives_processed,
+                                                                                                     num_archives_to_process,
+                                                                                                     args.initial_effective_lrate,
+                                                                                                     args.final_effective_lrate)
+    
+    dropout_proportion = lambda iter : train_lib.GetDropoutProportion(iter, num_iters, args.num_epochs, args.dropout_schedule)
 
     logger.info("Training will run for {0} epochs = {1} iterations".format(args.num_epochs, num_iters))
     for iter in range(num_iters):
@@ -651,20 +669,26 @@ def Train(args, run_opts):
                 shrinkage_value = args.shrink_value if train_lib.DoShrinkage(iter, model_file, args.shrink_nonlinearity, args.shrink_threshold) else 1
             else:
                 shrinkage_value = args.shrink_value
-            logger.info("On iteration {0}, learning rate is {1} and shrink value is {2}.".format(iter, learning_rate(iter, current_num_jobs, num_archives_processed), shrinkage_value))
+            print("test line1 "+str(args.dropout_schedule)+'\n')
+            if args.dropout_schedule is not None:
+                logger.info("On iteration {0}, learning rate is {1}, shrink value is {2} and dropout_proportion is {3}.".format(iter, learning_rate(iter, current_num_jobs, num_archives_processed), shrinkage_value, dropout_proportion(iter)))
+            else:
+                logger.info("On iteration {0}, learning rate is {1}, shrink value is {2}.".format(iter, learning_rate(iter, current_num_jobs, num_archives_processed), shrinkage_value))               
 
             TrainOneIteration(args.dir, iter, args.srand, egs_dir, current_num_jobs,
-                              num_archives_processed, num_archives,
-                              learning_rate(iter, current_num_jobs, num_archives_processed),
-                              shrinkage_value,
-                              args.num_chunk_per_minibatch,
-                              num_hidden_layers, args.add_layers_period,
-                              args.apply_deriv_weights, args.left_deriv_truncate, args.right_deriv_truncate,
-                              args.l2_regularize, args.xent_regularize, args.leaky_hmm_coefficient,
-                              args.momentum, args.max_param_change,
-                              args.shuffle_buffer_size,
-                              args.frame_subsampling_factor,
-                              args.truncate_deriv_weights, run_opts)
+                                  num_archives_processed, num_archives,
+                                  learning_rate(iter, current_num_jobs, num_archives_processed),
+                                  dropout_proportion(iter),
+                                  shrinkage_value,
+                                  args.num_chunk_per_minibatch,
+                                  num_hidden_layers, args.add_layers_period,
+                                  args.apply_deriv_weights, args.left_deriv_truncate, args.right_deriv_truncate,
+                                  args.l2_regularize, args.xent_regularize, args.leaky_hmm_coefficient,
+                                  args.momentum, args.max_param_change,
+                                  args.shuffle_buffer_size,
+                                  args.frame_subsampling_factor,
+                                  args.truncate_deriv_weights, run_opts)
+
             if args.cleanup:
                 # do a clean up everythin but the last 2 models, under certain conditions
                 train_lib.RemoveModel(args.dir, iter-2, num_iters, num_iters_combine,

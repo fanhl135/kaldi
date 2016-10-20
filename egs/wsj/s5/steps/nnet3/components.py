@@ -322,8 +322,8 @@ def AddLstmLayer(config_lines,
     if len(dropout_schedule) == 1:
         components.append("component name={0}_W_i-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
     else:
-        components.append("component name={0}_W_i-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
         components.append("component name={0}_W_i-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+        components.append("component name={0}_W_dropout_i-xr type=DropoutComponent dim={1} dropout-proportion={2}".format(name, cell_dim, dropout_schedule[0]))
     components.append("# note : the cell outputs pass through a diagonal matrix")
     components.append("component name={0}_w_ic type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
 
@@ -331,8 +331,8 @@ def AddLstmLayer(config_lines,
     if len(dropout_schedule) == 1:
         components.append("component name={0}_W_f-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
     else:
-        components.append("component name={0}_W_f-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
         components.append("component name={0}_W_f-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+        components.append("component name={0}_W_dropout_f-xr type=DropoutComponent dim={1} dropout-proportion={2}".format(name, cell_dim, dropout_schedule[0]))
     components.append("# note : the cell outputs pass through a diagonal matrix")
     components.append("component name={0}_w_fc type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
 
@@ -340,8 +340,8 @@ def AddLstmLayer(config_lines,
     if len(dropout_schedule) == 1:
         components.append("component name={0}_W_o-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
     else:
-        components.append("component name={0}_W_o-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
         components.append("component name={0}_W_o-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+        components.append("component name={0}_W_dropout_o-xr type=DropoutComponent dim={1} dropout-proportion={2}".format(name, cell_dim, dropout_schedule[0]))
     components.append("# note : the cell outputs pass through a diagonal matrix")
     components.append("component name={0}_w_oc type=NaturalGradientPerElementScaleComponent  dim={1} {2}".format(name, cell_dim, ng_per_element_scale_options))
 
@@ -349,8 +349,8 @@ def AddLstmLayer(config_lines,
     if len(dropout_schedule) == 1:
         components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
     else:
-        components.append("component name={0}_W_c-xr-dropout type=DropoutComponent input_dim={1} output-dim={2}".format(name, input_dim + recurrent_projection_dim, cell_dim))
         components.append("component name={0}_W_c-xr type=NaturalGradientAffineComponent input-dim={1} output-dim={2} {3}".format(name, input_dim + recurrent_projection_dim, cell_dim, ng_affine_options))
+        components.append("component name={0}_W_dropout_c-xr type=DropoutComponent dim={1} dropout-proportion={2}".format(name, cell_dim, dropout_schedule[0]))
 
     components.append("# Defining the non-linearities")
     components.append("component name={0}_i type=SigmoidComponent dim={1} {2}".format(name, cell_dim, self_repair_nonlinearity_string))
@@ -370,26 +370,54 @@ def AddLstmLayer(config_lines,
     c_tminus1_descriptor = "IfDefined(Offset({0}_c_t, {1}))".format(name, lstm_delay)
 
     component_nodes.append("# i_t")
-    component_nodes.append("component-node name={0}_i1 component={0}_W_i-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_i1 component={0}_W_i-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+        component_nodes.append("component-node name={0}_dropout_i1 component={0}_W_dropout_i-xr input=IfDefined({0}_i1)".format(name))
+    else:
+        component_nodes.append("component-node name={0}_i1 component={0}_W_i-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
     component_nodes.append("component-node name={0}_i2 component={0}_w_ic  input={1}".format(name, c_tminus1_descriptor))
-    component_nodes.append("component-node name={0}_i_t component={0}_i input=Sum({0}_i1, {0}_i2)".format(name))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_i_t component={0}_i input=Sum({0}_dropout_i1, {0}_i2)".format(name))
+    else:
+        component_nodes.append("component-node name={0}_i_t component={0}_i input=Sum({0}_i1, {0}_i2)".format(name))
 
     component_nodes.append("# f_t")
-    component_nodes.append("component-node name={0}_f1 component={0}_W_f-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_f1 component={0}_W_f-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+        component_nodes.append("component-node name={0}_dropout_f1 component={0}_W_dropout_f-xr input=IfDefined({0}_f1)".format(name))
+    else:
+        component_nodes.append("component-node name={0}_f1 component={0}_W_f-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
     component_nodes.append("component-node name={0}_f2 component={0}_w_fc  input={1}".format(name, c_tminus1_descriptor))
-    component_nodes.append("component-node name={0}_f_t component={0}_f input=Sum({0}_f1,{0}_f2)".format(name))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_f_t component={0}_f input=Sum({0}_dropout_f1,{0}_f2)".format(name))
+    else:
+        component_nodes.append("component-node name={0}_f_t component={0}_f input=Sum({0}_f1,{0}_f2)".format(name))
 
     component_nodes.append("# o_t")
-    component_nodes.append("component-node name={0}_o1 component={0}_W_o-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_o1 component={0}_W_o-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+        component_nodes.append("component-node name={0}_dropout_o1 component={0}_W_dropout_o-xr input=IfDefined({0}_o1)".format(name))
+    else:
+        component_nodes.append("component-node name={0}_o1 component={0}_W_o-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
     component_nodes.append("component-node name={0}_o2 component={0}_w_oc input={0}_c_t".format(name))
-    component_nodes.append("component-node name={0}_o_t component={0}_o input=Sum({0}_o1, {0}_o2)".format(name))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_o_t component={0}_o input=Sum({0}_dropout_o1, {0}_o2)".format(name))
+    else:
+        component_nodes.append("component-node name={0}_o_t component={0}_o input=Sum({0}_o1, {0}_o2)".format(name))
 
     component_nodes.append("# h_t")
     component_nodes.append("component-node name={0}_h_t component={0}_h input={0}_c_t".format(name))
 
     component_nodes.append("# g_t")
-    component_nodes.append("component-node name={0}_g1 component={0}_W_c-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
-    component_nodes.append("component-node name={0}_g_t component={0}_g input={0}_g1".format(name))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_g1 component={0}_W_c-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+        component_nodes.append("component-node name={0}_dropout_g1 component={0}_W_dropout_c-xr input=IfDefined({0}_g1)".format(name))
+    else:
+        component_nodes.append("component-node name={0}_g1 component={0}_W_c-xr input=Append({1}, IfDefined(Offset({0}_{2}, {3})))".format(name, input_descriptor, recurrent_connection, lstm_delay))
+    if len(dropout_schedule) != 1:
+        component_nodes.append("component-node name={0}_g_t component={0}_g input={0}_dropout_g1".format(name))
+    else:
+        component_nodes.append("component-node name={0}_g_t component={0}_g input={0}_g1".format(name))
 
     component_nodes.append("# parts of c_t")
     component_nodes.append("component-node name={0}_c1_t component={0}_c1  input=Append({0}_f_t, {1})".format(name, c_tminus1_descriptor))
@@ -433,6 +461,7 @@ def AddLstmLayer(config_lines,
 
 def AddBLstmLayer(config_lines,
                   name, input, cell_dim,
+                  dropout_schedule = [-1],
                   recurrent_projection_dim = 0,
                   non_recurrent_projection_dim = 0,
                   clipping_threshold = 1.0,

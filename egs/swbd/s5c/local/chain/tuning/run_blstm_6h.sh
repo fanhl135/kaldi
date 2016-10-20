@@ -114,7 +114,7 @@ if [ $stage -le 12 ]; then
 
   steps/nnet3/lstm/make_configs.py  \
     $repair_opts \
-    $dropout_opts \
+    "$dropout_opts" \
     --feat-dir data/${train_set}_hires \
     --ivector-dir exp/nnet3/ivectors_${train_set} \
     --num-training-epochs $num_training_epochs \
@@ -154,13 +154,14 @@ if [ $stage -le 13 ]; then
     --trainer.num-chunk-per-minibatch 64 \
     --trainer.frames-per-iter 1200000 \
     --trainer.max-param-change 2.0 \
-    --trainer.num-epochs $num_training_epoch \
+    --trainer.num-epochs $num_training_epochs \
     --trainer.optimization.shrink-value 0.99 \
     --trainer.optimization.num-jobs-initial 3 \
     --trainer.optimization.num-jobs-final 16 \
     --trainer.optimization.initial-effective-lrate 0.001 \
     --trainer.optimization.final-effective-lrate 0.0001 \
     --trainer.optimization.momentum 0.0 \
+    --trainer.optimization.dropout-schedule "$dropout_schedule" \
     --egs.stage $get_egs_stage \
     --egs.opts "--frames-overlap-per-eg 0" \
     --egs.chunk-width $chunk_width \
