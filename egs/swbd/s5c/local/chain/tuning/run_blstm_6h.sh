@@ -13,6 +13,8 @@ set -e
 # configs for 'chain'
 stage=12
 train_stage=-10
+preserve_model_interval=20
+layerwise_pretrain=false
 get_egs_stage=-10
 speed_perturb=true
 dir=exp/chain/blstm_6h  # Note: _sp will get added to this if $speed_perturb == true.
@@ -27,6 +29,7 @@ chunk_right_context=40
 xent_regularize=0.025
 self_repair_scale=0.00001
 label_delay=0
+add_ephemeral_connection=true      # if the add_ephemeral_connection == true dropout_schedule should end up with 0
 dropout_schedule="0.3 0.2 0.1 0.0" # Note: the len of dropout_schedule should equal epoch num 
 num_training_epochs=4
 # decode options

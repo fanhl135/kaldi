@@ -74,6 +74,21 @@ def GetArgs():
     # Dropout options
     parser.add_argument("--dropout-schedule", type=str, default=None,
                         help="option to apply dropout components to the recurrent components in LSTM")
+    parser.add_argument("--add-ephemeral-connection", type=str, action=nnet3_train_lib.StrToBoolAction,
+                        help="if true, a ephemeral connection with dropout connection is added to all layers.",
+                        choices=['true', 'false'], default = False)
+    parser.add_argument("--num-skips-for-ephemeral", type=int,
+                         help="Number of skip layers for ephemeral connection, the information passes from"
+                         "layer i - num_skips_for_ephemeral to layer i using full or identiry transform.",
+                         default=2)
+    parser.add_argument("--use-dropout", type=str, action=nnet3_train_lib.StrToBoolAction,
+                         help="If true, the ephemeral connection removed during training, otherwise used during whole training.",
+                         choices=['true', 'false'], default= True)
+ 
+    parser.add_argument("--layerwise-pretrain", type=str, action=nnet3_train_lib.StrToBoolAction,
+                        help="if true, the layers written separately in configs, otherwise "
+                        "all layers are written in {config_dir}/layer1.config.",
+                        choices=['true', 'false'], default = True)
     # Gradient clipper options
     parser.add_argument("--norm-based-clipping", type=str, action=nnet3_train_lib.StrToBoolAction,
                         help="use norm based clipping in ClipGradient components ", default=True, choices = ["false", "true"])
@@ -245,20 +260,20 @@ def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
                 norm_based_clipping, clipping_threshold,
                 ng_per_element_scale_options, ng_affine_options,
                 label_delay, include_log_softmax, xent_regularize,
-                self_repair_scale_nonlinearity, self_repair_scale_clipgradient):
+                self_repair_scale_nonlinearity, self_repair_scale_clipgradient,
+                add_ephemeral_connection, num_skips_for_ephemeral, layerwise_pretrain, use_dropout):
 
     config_lines = {'components':[], 'component-nodes':[]}
 
     config_files={}
     prev_layer_output = nodes.AddInputLayer(config_lines, feat_dim, splice_indexes[0], ivector_dim)
-
     # Add the init config lines for estimating the preconditioning matrices
     init_config_lines = copy.deepcopy(config_lines)
     init_config_lines['components'].insert(0, '# Config file for initializing neural network prior to')
     init_config_lines['components'].insert(0, '# preconditioning matrix computation')
     nodes.AddOutputLayer(init_config_lines, prev_layer_output)
     config_files[config_dir + '/init.config'] = init_config_lines
-
+    
     prev_layer_output = nodes.AddLdaLayer(config_lines, "L0", prev_layer_output, config_dir + '/lda.mat')
 
     for i in range(num_lstm_layers):
