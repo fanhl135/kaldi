@@ -267,15 +267,16 @@ def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
 
     config_files={}
     prev_layer_output = nodes.AddInputLayer(config_lines, feat_dim, splice_indexes[0], ivector_dim)
+    dropout_layer_input = prev_layer_output
     # Add the init config lines for estimating the preconditioning matrices
     init_config_lines = copy.deepcopy(config_lines)
     init_config_lines['components'].insert(0, '# Config file for initializing neural network prior to')
     init_config_lines['components'].insert(0, '# preconditioning matrix computation')
     nodes.AddOutputLayer(init_config_lines, prev_layer_output)
     config_files[config_dir + '/init.config'] = init_config_lines
-    
-    prev_layer_output = nodes.AddLdaLayer(config_lines, "L0", prev_layer_output, config_dir + '/lda.mat')
 
+    prev_layer_output = nodes.AddLdaLayer(config_lines, "L0", prev_layer_output, config_dir + '/lda.mat')
+    
     for i in range(num_lstm_layers):
         if len(lstm_delay[i]) == 2: # add a bi-directional LSTM layer
             prev_layer_output = nodes.AddBLstmLayer(config_lines, "BLstm{0}".format(i+1),
