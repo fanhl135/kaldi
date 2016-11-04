@@ -50,7 +50,9 @@ def GetArgs():
                         default=0.0)
     parser.add_argument("--include-log-softmax", type=str, action=nnet3_train_lib.StrToBoolAction,
                         help="add the final softmax layer ", default=True, choices = ["false", "true"])
-
+    parser.add_argument("--layerwise-pretrain", type=str, action=nnet3_train_lib.StrToBoolAction,
+                        help="option to control layerwise pretrain the neural network or not",
+                        default=False, choices = ["false", "true"])
     # LSTM options
     parser.add_argument("--num-lstm-layers", type=int,
                         help="Number of LSTM layers to be stacked", default=1)
@@ -62,7 +64,13 @@ def GetArgs():
                         help="dimension of non-recurrent projection")
     parser.add_argument("--hidden-dim", type=int,
                         help="dimension of fully-connected layers")
-
+    parser.add_argument("--lstm-rec-perturb", type=str, action=nnet3_train_lib.StrToBoolAction,
+                        help="option to control whether to add perturb components to the LSTM recurrent connections", 
+                        default=False, choices = ["false", "true"])
+    parser.add_argument("--add-lstm-ephemeral-highway", type=str, action=nnet3_train_lib.StrToBoolAction,
+                        default=False, choices= ["false", "true"])
+    parser.add_argument("--set-init-dropout-proportion", type=float, default=0.0,
+                        help="set the initial dropout proportion")
     # Natural gradient options
     parser.add_argument("--ng-per-element-scale-options", type=str,
                         help="options to be supplied to NaturalGradientPerElementScaleComponent", default="")
@@ -208,7 +216,8 @@ def ParseLstmDelayString(lstm_delay):
     return lstm_delay_array
 
 
-def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
+def MakeConfigs(config_dir, layerwise_pretrain, lstm_rec_perturb , add_lstm_ephemeral_highway, set_init_dropout_proportion,
+                feat_dim, ivector_dim, num_targets,
                 splice_indexes, lstm_delay, cell_dim, hidden_dim,
                 recurrent_projection_dim, non_recurrent_projection_dim,
                 num_lstm_layers, num_hidden_layers,
@@ -233,31 +242,34 @@ def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
 
     for i in range(num_lstm_layers):
         if len(lstm_delay[i]) == 2: # add a bi-directional LSTM layer
-            prev_layer_output = nodes.AddBLstmLayer(config_lines, "BLstm{0}".format(i+1),
-                                                    prev_layer_output, cell_dim,
+            prev_layer_output = nodes.AddBLstmLayer(config_lines, i, "BLstm{0}".format(i+1), "BLstm{0}".format(i),
+                                                    prev_layer_output, cell_dim, lstm_rec_perturb, add_lstm_ephemeral_highway, set_init_dropout_proportion,
                                                     recurrent_projection_dim, non_recurrent_projection_dim,
                                                     clipping_threshold, norm_based_clipping,
                                                     ng_per_element_scale_options, ng_affine_options,
                                                     lstm_delay = lstm_delay[i], self_repair_scale_nonlinearity = self_repair_scale_nonlinearity, self_repair_scale_clipgradient = self_repair_scale_clipgradient)
         else: # add a uni-directional LSTM layer
-            prev_layer_output = nodes.AddLstmLayer(config_lines, "Lstm{0}".format(i+1),
-                                                   prev_layer_output, cell_dim,
+            prev_layer_output = nodes.AddLstmLayer(config_lines, i, "Lstm{0}".format(i+1), "Lstm{0}".format(i),
+                                                   prev_layer_output, cell_dim, lstm_rec_perturb, add_lstm_ephemeral_highway, set_init_dropout_proportion,
                                                    recurrent_projection_dim, non_recurrent_projection_dim,
                                                    clipping_threshold, norm_based_clipping,
                                                    ng_per_element_scale_options, ng_affine_options,
                                                    lstm_delay = lstm_delay[i][0], self_repair_scale_nonlinearity = self_repair_scale_nonlinearity, self_repair_scale_clipgradient = self_repair_scale_clipgradient)
         # make the intermediate config file for layerwise discriminative
         # training
-        nodes.AddFinalLayer(config_lines, prev_layer_output, num_targets, ng_affine_options, label_delay = label_delay, include_log_softmax = include_log_softmax)
+        if layerwise_pretrain == True or i == num_hidden_layers -1:
+            nodes.AddFinalLayer(config_lines, prev_layer_output, num_targets, ng_affine_options, label_delay = label_delay, include_log_softmax = include_log_softmax)
 
 
-        if xent_regularize != 0.0:
-            nodes.AddFinalLayer(config_lines, prev_layer_output, num_targets,
-                                include_log_softmax = True, label_delay = label_delay,
-                                name_affix = 'xent')
-
-        config_files['{0}/layer{1}.config'.format(config_dir, i+1)] = config_lines
-        config_lines = {'components':[], 'component-nodes':[]}
+            if xent_regularize != 0.0:
+                nodes.AddFinalLayer(config_lines, prev_layer_output, num_targets,
+                                    include_log_softmax = True, label_delay = label_delay,
+                                    name_affix = 'xent')
+        if layerwise_pretrain:
+            config_files['{0}/layer{1}.config'.format(config_dir, i+1)] = config_lines
+            config_lines = {'components':[], 'component-nodes':[]}
+        else:
+            config_files['{0}/layer1.config'.format(config_dir)] = config_lines
 
     for i in range(num_lstm_layers, num_hidden_layers):
         prev_layer_output = nodes.AddAffRelNormLayer(config_lines, "L{0}".format(i+1),
@@ -271,9 +283,11 @@ def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
             nodes.AddFinalLayer(config_lines, prev_layer_output, num_targets,
                                 include_log_softmax = True, label_delay = label_delay,
                                 name_affix = 'xent')
-
-        config_files['{0}/layer{1}.config'.format(config_dir, i+1)] = config_lines
-        config_lines = {'components':[], 'component-nodes':[]}
+        if layerwise_pretrain == True:
+            config_files['{0}/layer{1}.config'.format(config_dir, i+1)] = config_lines
+            config_lines = {'components':[], 'component-nodes':[]}
+        else:
+            config_files['{0}/layer1.config'.format(config_dir)] = config_lines         
 
     # printing out the configs
     # init.config used to train lda-mllt train
@@ -283,13 +297,13 @@ def MakeConfigs(config_dir, feat_dim, ivector_dim, num_targets,
 
 
 
-def ProcessSpliceIndexes(config_dir, splice_indexes, label_delay, num_lstm_layers):
+def ProcessSpliceIndexes(config_dir, splice_indexes, label_delay, num_lstm_layers, lstm_rec_perturb, layerwise_pretrain):
     parsed_splice_output = ParseSpliceString(splice_indexes.strip(), label_delay)
     left_context = parsed_splice_output['left_context']
     right_context = parsed_splice_output['right_context']
     num_hidden_layers = parsed_splice_output['num_hidden_layers']
     splice_indexes = parsed_splice_output['splice_indexes']
-
+    
     if (num_hidden_layers < num_lstm_layers):
         raise Exception("num-lstm-layers : number of lstm layers has to be greater than number of layers, decided based on splice-indexes")
 
@@ -306,9 +320,18 @@ def ProcessSpliceIndexes(config_dir, splice_indexes, label_delay, num_lstm_layer
 
 def Main():
     args = GetArgs()
-    [left_context, right_context, num_hidden_layers, splice_indexes] = ProcessSpliceIndexes(args.config_dir, args.splice_indexes, args.label_delay, args.num_lstm_layers)
+    [left_context, right_context, num_hidden_layers, splice_indexes] = ProcessSpliceIndexes(args.config_dir,
+                                                                                            args.splice_indexes,
+                                                                                            args.label_delay, 
+                                                                                            args.num_lstm_layers,
+                                                                                            args.lstm_rec_perturb,
+                                                                                            args.layerwise_pretrain)
 
     MakeConfigs(config_dir = args.config_dir,
+                layerwise_pretrain = args.layerwise_pretrain,
+                lstm_rec_perturb = args.lstm_rec_perturb,
+                add_lstm_ephemeral_highway = args.add_lstm_ephemeral_highway, 
+                set_init_dropout_proportion = args.set_init_dropout_proportion,
                 feat_dim = args.feat_dim, ivector_dim = args.ivector_dim,
                 num_targets = args.num_targets,
                 splice_indexes = splice_indexes, lstm_delay = args.lstm_delay,

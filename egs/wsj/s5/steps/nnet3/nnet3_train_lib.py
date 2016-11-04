@@ -188,7 +188,7 @@ def ParseModelConfigVarsFile(var_file):
         for line in var_file_handle:
             parts = line.split('=')
             field_name = parts[0].strip()
-            field_value = parts[1]
+            field_value = parts[1].strip()
             if field_name in ['model_left_context', 'left_context']:
                 model_left_context = int(field_value)
             elif field_name in ['model_right_context', 'right_context']:
@@ -478,6 +478,51 @@ def GetLearningRate(iter, num_jobs, num_iters, num_archives_processed,
 
     return num_jobs * effective_learning_rate
 
+# for this stage experiments, our perturb rate is log
+def GetPerturbRate(iter, lstm_rec_perturb_schedule, num_iters, lstm_perturb_para, lstm_perturb_mod, max_models_combine):
+    if lstm_perturb_mod == 1:
+        if (iter < 5*max_models_combine ):
+            perturb_rate = 0.0
+        elif (int(5*max_models_combine) <= iter  <= int((num_iters - 5*max_models_combine))):
+            if (int(5*max_models_combine) <= iter  < int(5*max_models_combine+80)):
+                # 30 iters to raise perturb(dropout) rate
+                perturb_rate = float(iter - 5*max_models_combine + 1)*(0.05/80.0)
+            else:
+                # rest of the perturb period keep rate = 0.1
+                perturb_rate = 0.05
+        else:
+            perturb_rate = 0.0
+    if lstm_perturb_mod == 2:
+        if lstm_rec_perturb_schedule != None:
+            if iter == -1:
+                perturb_rate = 0.0
+            else:
+                perturb_schedule_len = len(lstm_rec_perturb_schedule)
+                perturb_chunk = num_iters / perturb_schedule_len
+                perturb_stage = iter / perturb_chunk
+                perturb_rate = 0.0
+                if perturb_schedule_len == perturb_stage:
+                    perturb_stage = perturb_schedule_len -1
+                perturb_rate = lstm_rec_perturb_schedule[perturb_stage]
+        else:
+            perturb_rate = None
+    if lstm_perturb_mod == 3:
+        if (iter <= int(num_iters - 4*max_models_combine)):
+            perturb_rate = math.log(2.0-float(iter)/float(num_iters))/(float(lstm_perturb_para)*math.log(2.0))
+        else:
+            perturb_rate = 0.0
+
+    
+    return perturb_rate
+
+def GetEphemeralDropRate(iter, num_iters, max_models_combine):
+    if iter < 5*max_models_combine:
+        lstm_ephemeral_highway_droprate = 0.0
+    elif (5*max_models_combine <= iter <= int(num_iters-5*max_models_combine)):
+        lstm_ephemeral_highway_droprate = math.sinh(float(iter)/float((num_iters-5*max_models_combine)))/math.sinh(1)
+    else:
+        lstm_ephemeral_highway_droprate = 1.0
+    return lstm_ephemeral_highway_droprate
 def DoShrinkage(iter, model_file, non_linearity, shrink_threshold):
 
     if iter == 0:

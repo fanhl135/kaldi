@@ -6,7 +6,7 @@
 
 
 # this script is based on steps/nnet3/lstm/train.sh
-
+from __future__ import print_function
 import os
 import subprocess
 import argparse
@@ -176,7 +176,18 @@ def GetArgs():
     parser.add_argument("--trainer.lda.max-lda-jobs", type=float, dest='max_lda_jobs',
                         default=10,
                         help="Max number of jobs used for LDA stats accumulation")
-
+    parser.add_argument("--lstm-rec-perturb-schedule", type=str, default=None, dest='lstm_rec_perturb_schedule',
+                        help="option to control the recurrent connection perturb schedule")
+    parser.add_argument("--lstm-rec-perturb", type=str, action=train_lib.StrToBoolAction, dest="lstm_rec_perturb",
+                        default=False, help="option to control whether add rec perturb to LSTM" )
+    parser.add_argument("--layerwise-pretrain", type=str, action=train_lib.StrToBoolAction, dest="layerwise_pretrain",
+                        default=True, help="option to control whether the neural network is layerwise pretrained")
+    parser.add_argument("--lstm-perturb-para", type=int, dest='lstm_perturb_para',
+                        default=10, help="parameter used to control the dropout perturb rate")
+    parser.add_argument("--lstm-perturb-mod", type=int, dest="lstm_perturb_mod",
+                        default=1, help="1 for log-descent plat bottom vertical rise, 2 for echelonment, 3 for log stopped at 5*max_combine iter")
+    parser.add_argument("--add-lstm-ephemeral-highway", type=str, action=train_lib.StrToBoolAction,
+                        dest='add_lstm_ephemeral_highway', help="option to control whether add the ephemeral highway to lstm")
     # Parameters for the optimization
     parser.add_argument("--trainer.optimization.initial-effective-lrate", type=float, dest='initial_effective_lrate',
                         default = 0.0002,
@@ -291,6 +302,13 @@ def ProcessArgs(args):
     if args.transform_dir is None:
         args.transform_dir = args.lat_dir
     # set the options corresponding to args.use_gpu
+    # process the lstm_rec_perturb_schedule, convert the schedule from string to list
+    if(args.lstm_rec_perturb_schedule != None):
+        try:
+            args.lstm_rec_perturb_schedule = ParseLstmRecPerturbSchedule(args.lstm_rec_perturb_schedule)
+        except ValueError:
+            sys.exit("Error: --lstm-rec-perturb-schedule has incorrect format value. Provided value is '{0}'".format(args.lstm_rec_perturb_schedule))
+        
     run_opts = RunOpts()
     if args.use_gpu:
         if not train_lib.CheckIfCudaCompiled():
@@ -323,6 +341,26 @@ class RunOpts:
         self.combine_queue_opt = None
         self.parallel_train_opts = None
 
+def ParseLstmRecPerturbSchedule(lstm_rec_perturb_schedule):
+    split_rec = lstm_rec_perturb_schedule.split(" ");
+    lstm_rec_perturb_schedule_array = []
+    try:
+        for i in range(len(split_rec)):
+            perturb_rate = float(split_rec[i].strip())
+            if (perturb_rate > 1.0):
+                raise ValueError('Invalid lstm_rec_perturb_schedule, perturb rate larger than 1.0')
+            elif (perturb_rate < 0.0):
+                raise ValueError('Invalid lstm_rec_perturb_schedule, perturb rate smaller than 0.0')
+            lstm_rec_perturb_schedule_array.append(perturb_rate)
+
+        if lstm_rec_perturb_schedule_array[0] != 0.0:
+            raise ValueError('Invalid lstm_rec_perturb_schedule, the first perturb rate should be 0.0')
+        elif lstm_rec_perturb_schedule_array[-1] != 0.0:
+            raise ValueError('Invalid lstm_rec_perturb_schedule, the last perturb rate should be 0.0')
+    except ValueError as e:
+        raise ValueError("invalid --lstm-rec-perturb-schedule " + lstm_rec_perturb_schedule + str(e))
+    
+    return lstm_rec_perturb_schedule_array
 
 def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archives,
                    raw_model_string, egs_dir,
@@ -402,8 +440,10 @@ def TrainNewModels(dir, iter, srand, num_jobs, num_archives_processed, num_archi
 
 def TrainOneIteration(dir, iter, srand, egs_dir,
                       num_jobs, num_archives_processed, num_archives,
-                      learning_rate, shrinkage_value, num_chunk_per_minibatch,
-                      num_hidden_layers, add_layers_period,
+                      learning_rate, lstm_rec_perturb_rate, lstm_rec_perturb, remove_rec_perturb_components, 
+                      add_lstm_ephemeral_highway, lstm_ephemeral_highway_droprate, remove_ephemeral_highway_components, layerwise_pretrain,
+                      shrinkage_value, num_chunk_per_minibatch,
+                      num_hidden_layers, layer_config_num, add_layers_period,
                       apply_deriv_weights, left_deriv_truncate, right_deriv_truncate,
                       l2_regularize, xent_regularize, leaky_hmm_coefficient,
                       momentum, max_param_change, shuffle_buffer_size,
@@ -432,20 +472,68 @@ def TrainOneIteration(dir, iter, srand, egs_dir,
 
     if iter > 0:
         chain_lib.ComputeProgress(dir, iter, run_opts)
-
-    if iter > 0 and (iter <= (num_hidden_layers-1) * add_layers_period) and (iter % add_layers_period == 0):
+    if layerwise_pretrain == True:
+        iter_control = num_hidden_layers
+    else:
+        iter_control = layer_config_num
+    if iter > 0 and (iter <= (iter_control-1) * add_layers_period) and (iter % add_layers_period == 0):
 
         do_average = False # if we've just mixed up, don't do averaging but take the
                            # best.
         cur_num_hidden_layers = 1 + iter / add_layers_period
         config_file = "{0}/configs/layer{1}.config".format(dir, cur_num_hidden_layers)
-        raw_model_string = "nnet3-am-copy --raw=true --learning-rate={lr} {dir}/{iter}.mdl - | nnet3-init --srand={srand} - {config} - |".format(lr=learning_rate, dir=dir, iter=iter, srand=iter + srand, config=config_file)
+        if lstm_rec_perturb == True:
+            raw_model_string = "nnet3-am-copy --raw=true --learning-rate={lr} --set-dropout-proportion={dp} {dir}/{iter}.mdl - | nnet3-init --srand={srand} - {config} - |".format(lr=learning_rate,
+                                dp=lstm_rec_perturb_rate, dir=dir, iter=iter, srand=iter + srand, config=config_file)
+        else:
+            if add_lstm_ephemeral_highway == True:
+                raw_model_string = "nnet3-am-copy --raw=true --learning-rate={lr} --set-dropout-proportion={dp} {dir}/{iter}.mdl - | nnet3-init --srand={srand} - {config} - |".format(lr=learning_rate,
+                                    dp=lstm_ephemeral_highway_droprate, dir=dir, iter=iter, srand=iter + srand, config=config_file)                
+            elif add_lstm_ephemeral_highway == False:
+                raw_model_string = "nnet3-am-copy --raw=true --learning-rate={lr} {dir}/{iter}.mdl - | nnet3-init --srand={srand} - {config} - |".format(lr=learning_rate, dir=dir, iter=iter, srand=iter + srand, config=config_file)
         cache_io_opts = ""
     else:
         do_average = True
         if iter == 0:
             do_average = False   # on iteration 0, pick the best, don't average.
-        raw_model_string = "nnet3-am-copy --raw=true --learning-rate={0} {1}/{2}.mdl - |".format(learning_rate, dir, iter)
+        if lstm_rec_perturb == True:
+            # when the first time perturb rate change from none zero to zero, the remove_rec_perturb_components option is True, else is False
+            if remove_rec_perturb_components == False:
+                 raw_model_string = "nnet3-am-copy --raw=true --learning-rate={0} --set-dropout-proportion={3} {1}/{2}.mdl - |".format(learning_rate, dir, iter, lstm_rec_perturb_rate)
+            elif remove_rec_perturb_components == True:
+                # if remove_rec_perturb_components is True, we remove the rec_perturb componnets 
+                # using the edits-config
+                replace_config_str = '{0}/configs/dropout.config'.format(dir)
+                replace_config_file = open(replace_config_str, 'w')
+                for layer in range(1, num_hidden_layers+1):
+                    print('component-node name=BLstm{0}_forward_rp_t component=BLstm{0}_forward_W-m input=BLstm{0}_forward_m_t'.format(layer), file=replace_config_file)
+                    print('component-node name=BLstm{0}_backward_rp_t component=BLstm{0}_backward_W-m input=BLstm{0}_backward_m_t'.format(layer), file=replace_config_file)
+
+                replace_config_file.close()
+                raw_model_string = "nnet3-am-copy --raw=true --nnet-config={3} --edits=remove-orphans --learning-rate={0} {1}/{2}.mdl - |".format(learning_rate, dir, iter, replace_config_str)
+                remove_dropout_file = open('{0}/configs/dropout_removed'.format(dir), 'w')
+                print('removed-dropout=true', file=remove_dropout_file)
+                remove_dropout_file.close()                
+        else:
+            if add_lstm_ephemeral_highway == True:
+                if remove_ephemeral_highway_components == False:
+                    raw_model_string = "nnet3-am-copy --raw=true --learning-rate={0} --set-dropout-proportion={3} {1}/{2}.mdl - |".format(learning_rate, dir, iter, lstm_ephemeral_highway_droprate)
+                elif remove_ephemeral_highway_components == True:
+                    # if remove_ephemeral_highway_components is True, we remove the ephemeral highway componnets 
+                    # using the edits-config
+                    replace_config_str = '{0}/configs/highway_dropout.config'.format(dir)
+                    replace_config_file = open(replace_config_str, 'w')
+                    for layer in range(1, num_hidden_layers+1):
+                        print('component-node name=BLstm{0}_forward_c_t component=BLstm{0}_forward_c input=Sum(BLstm{0}_forward_c1_t, BLstm{0}_forward_c2_t)'.format(layer), file=replace_config_file)
+                        print('component-node name=BLstm{0}_backward_c_t component=BLstm{0}_backward_c input=Sum(BLstm{0}_backward_c1_t, BLstm{0}_backward_c2_t)'.format(layer), file=replace_config_file)
+
+                    replace_config_file.close()
+                    raw_model_string = "nnet3-am-copy --raw=true --nnet-config={3} --edits=remove-orphans --learning-rate={0} {1}/{2}.mdl - |".format(learning_rate, dir, iter, replace_config_str)
+                    remove_dropout_file = open('{0}/configs/dropout_removed'.format(dir), 'w')
+                    print('removed-dropout=true', file=remove_dropout_file)
+                    remove_dropout_file.close()                     
+            else:
+                raw_model_string = "nnet3-am-copy --raw=true --learning-rate={0} {1}/{2}.mdl - |".format(learning_rate, dir, iter)
         cache_io_opts = "--read-cache={dir}/cache.{iter}".format(dir = dir, iter = iter)
 
     if do_average:
@@ -626,9 +714,19 @@ def Train(args, run_opts):
     num_archives_to_process = args.num_epochs * num_archives_expanded
     num_archives_processed = 0
     num_iters=(num_archives_to_process * 2) / (args.num_jobs_initial + args.num_jobs_final)
+    # for layerwise setting, layer config num equal num_hidden_layers
+    # but for none layerwise pretrain, there is only one layer config
+    if args.layerwise_pretrain == False:
+        layer_config_num = 1
+    else:
+        layer_config_num = num_hidden_layers
 
+    print('num_hidden_layers: '+str(num_hidden_layers))
+    print('layer_config_num (if we choose non-layerwise-pretrain, layer_config_num will be 1): '+str(layer_config_num))
+    print('lstm_rec_perturb( read from configs/vars): '+str(args.lstm_rec_perturb))
+    print('layerwise_pretrain( read from configs/vars): '+str(args.layerwise_pretrain))
     num_iters_combine = train_lib.VerifyIterations(num_iters, args.num_epochs,
-                                                   num_hidden_layers, num_archives_expanded,
+                                                   layer_config_num, num_archives_expanded,
                                                    args.max_models_combine, args.add_layers_period,
                                                    args.num_jobs_final)
 
@@ -637,6 +735,9 @@ def Train(args, run_opts):
                                                                                            num_archives_to_process,
                                                                                            args.initial_effective_lrate,
                                                                                            args.final_effective_lrate)
+    
+    lstm_rec_perturb_rate = lambda iter : train_lib.GetPerturbRate(iter, args.lstm_rec_perturb_schedule, num_iters, args.lstm_perturb_para, args.lstm_perturb_mod, args.max_models_combine)
+    lstm_ephemeral_highway_droprate = lambda iter : train_lib.GetEphemeralDropRate(iter, num_iters, args.max_models_combine)
 
     logger.info("Training will run for {0} epochs = {1} iterations".format(args.num_epochs, num_iters))
     for iter in range(num_iters):
@@ -646,19 +747,48 @@ def Train(args, run_opts):
         current_num_jobs = int(0.5 + args.num_jobs_initial + (args.num_jobs_final - args.num_jobs_initial) * float(iter) / num_iters)
 
         if args.stage <= iter:
+
             if args.shrink_value != 1.0:
                 model_file = "{dir}/{iter}.mdl".format(dir = args.dir, iter = iter)
                 shrinkage_value = args.shrink_value if train_lib.DoShrinkage(iter, model_file, args.shrink_nonlinearity, args.shrink_threshold) else 1
             else:
                 shrinkage_value = args.shrink_value
-            logger.info("On iteration {0}, learning rate is {1} and shrink value is {2}.".format(iter, learning_rate(iter, current_num_jobs, num_archives_processed), shrinkage_value))
+
+            if args.lstm_rec_perturb == True:
+                logger.info("On iteration {0}, learning rate is {1}, shrink value is {2} and lstm perturb rate is {3}.".format(iter, learning_rate(iter, current_num_jobs, num_archives_processed), shrinkage_value, lstm_rec_perturb_rate(iter)))
+                # remove_rec_perturb_components used to control whether to remove the rec perturb components
+                if (lstm_rec_perturb_rate(iter-1) != 0.0) and (lstm_rec_perturb_rate(iter) == 0.0) :
+                    remove_rec_perturb_components = True
+                else:
+                    remove_rec_perturb_components = False
+            else:
+                remove_rec_perturb_components = False
+                if args.add_lstm_ephemeral_highway == True:
+                    logger.info("On iteration {0}, learning rate is {1}, shrink value is {2} and lstm highway dropout rate is {3}.".format(iter, learning_rate(iter, current_num_jobs, num_archives_processed), shrinkage_value, lstm_ephemeral_highway_droprate(iter)))
+                elif args.add_lstm_ephemeral_highway == False:
+                    logger.info("On iteration {0}, learning rate is {1} and shrink value is {2}.".format(iter, learning_rate(iter, current_num_jobs, num_archives_processed), shrinkage_value))
+
+            if args.add_lstm_ephemeral_highway == True:
+                if (lstm_ephemeral_highway_droprate(iter-1) != 1.0) and (lstm_ephemeral_highway_droprate(iter) == 1.0) :
+                    remove_ephemeral_highway_components = True
+                else:
+                    remove_ephemeral_highway_components = False
+            else:
+                remove_ephemeral_highway_components = False
 
             TrainOneIteration(args.dir, iter, args.srand, egs_dir, current_num_jobs,
                               num_archives_processed, num_archives,
                               learning_rate(iter, current_num_jobs, num_archives_processed),
+                              lstm_rec_perturb_rate(iter),
+                              args.lstm_rec_perturb,
+                              remove_rec_perturb_components,
+                              args.add_lstm_ephemeral_highway,
+                              lstm_ephemeral_highway_droprate(iter),
+                              remove_ephemeral_highway_components,
+                              args.layerwise_pretrain,
                               shrinkage_value,
                               args.num_chunk_per_minibatch,
-                              num_hidden_layers, args.add_layers_period,
+                              num_hidden_layers, layer_config_num, args.add_layers_period,
                               args.apply_deriv_weights, args.left_deriv_truncate, args.right_deriv_truncate,
                               args.l2_regularize, args.xent_regularize, args.leaky_hmm_coefficient,
                               args.momentum, args.max_param_change,

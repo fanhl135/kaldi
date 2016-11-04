@@ -17,7 +17,14 @@ speed_perturb=true
 dir=exp/chain/blstm_6h  # Note: _sp will get added to this if $speed_perturb == true.
 decode_iter=
 decode_dir_affix=
-
+layerwise_pretrain=true
+lstm_rec_perturb=false
+lstm_rec_perturb_schedule="0.0 0.1 0.2 0.3 0.2 0.1 0.0" 
+lstm_perturb_para=
+lstm_perturb_mod= # 1 for log-descent plat bottom vertical rise, 2 for echelonment, 3 for log stopped at 5*max_combine iter
+add_lstm_ephemeral_highway=true
+set_init_dropout_proportion=
+# attention add_lstm_ephemeral_highway and lstm_rec_perturb could only one be true
 # training options
 leftmost_questions_truncate=-1
 chunk_width=150
@@ -110,6 +117,10 @@ if [ $stage -le 12 ]; then
 
   steps/nnet3/lstm/make_configs.py  \
     $repair_opts \
+    --layerwise-pretrain $layerwise_pretrain \
+    --lstm-rec-perturb $lstm_rec_perturb \
+    --add-lstm-ephemeral-highway $add_lstm_ephemeral_highway\
+    --set-init-dropout-proportion $set_init_dropout_proportion\
     --feat-dir data/${train_set}_hires \
     --ivector-dir exp/nnet3/ivectors_${train_set} \
     --tree-dir $treedir \
@@ -137,6 +148,12 @@ if [ $stage -le 13 ]; then
 
  steps/nnet3/chain/train.py --stage $train_stage \
     --cmd "$decode_cmd" \
+    --lstm-rec-perturb $lstm_rec_perturb \
+    --layerwise-pretrain $layerwise_pretrain \
+    --lstm-rec-perturb-schedule "$lstm_rec_perturb_schedule" \
+    --lstm-perturb-para $lstm_perturb_para \
+    --lstm-perturb-mod $lstm_perturb_mod \
+    --add-lstm-ephemeral-highway $add_lstm_ephemeral_highway\
     --feat.online-ivector-dir exp/nnet3/ivectors_${train_set} \
     --feat.cmvn-opts "--norm-means=false --norm-vars=false" \
     --chain.xent-regularize $xent_regularize \
