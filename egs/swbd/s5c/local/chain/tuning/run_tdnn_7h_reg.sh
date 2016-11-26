@@ -18,6 +18,7 @@ stage=12
 train_stage=-10
 get_egs_stage=-10
 speed_perturb=true
+dir=exp/chain/tdnn_7h_reg  # Note: _sp will get added to this if $speed_perturb == true.
 decode_iter=
 
 # training options
