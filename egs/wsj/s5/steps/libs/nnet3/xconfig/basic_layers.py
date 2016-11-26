@@ -593,7 +593,7 @@ class XconfigBasicLayer(XconfigLayerBase):
         # Here we just list some likely combinations.. you can just add any
         # combinations you want to use, to this list.
         assert first_token in [ 'relu-layer', 'relu-renorm-layer', 'sigmoid-layer',
-                                'tanh-layer' ]
+                                'tanh-layer' , 'relu-renorm-sreg-layer']
         XconfigLayerBase.__init__(self, first_token, key_to_value, prev_names)
 
     def set_default_configs(self):

@@ -15,6 +15,7 @@ import shutil
 import sys
 import traceback
 
+sys.path = [ 'steps/' ] + sys.path
 import libs.nnet3.train.common as common_train_lib
 import libs.common as common_lib
 import libs.nnet3.train.chain_objf.acoustic_model as chain_lib

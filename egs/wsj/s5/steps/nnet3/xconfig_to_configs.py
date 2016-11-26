@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.realpath(os.path.dirname(sys.argv[0])) + '/')
 
 import libs.nnet3.xconfig.parser as xparser
 # do the proper import when python scripts have been refactored
-nnet3_lib = imp.load_source('', 'steps/nnet3/nnet3_train_lib.py')
+nnet3_lib = imp.load_source('', 'steps/libs/common.py')
 
 def get_args():
     # we add compulsary arguments as named arguments for readability
@@ -182,8 +182,8 @@ def write_config_files(config_dir, all_layers):
 def add_back_compatibility_info(config_dir):
     """This will be removed when python script refactoring is done."""
 
-    nnet3_lib.RunKaldiCommand("nnet3-init {0}/ref.config {0}/ref.raw".format(config_dir))
-    out, err = nnet3_lib.RunKaldiCommand("nnet3-info {0}/ref.raw | head -4".format(config_dir))
+    nnet3_lib.run_kaldi_command("nnet3-init {0}/ref.config {0}/ref.raw".format(config_dir))
+    out, err = nnet3_lib.run_kaldi_command("nnet3-info {0}/ref.raw | head -4".format(config_dir))
     #out looks like this
     # left-context: 7
     # right-context: 0
@@ -206,7 +206,7 @@ def add_back_compatibility_info(config_dir):
     vf.write('num_hidden_layers=1\n')
     vf.close()
 
-    nnet3_lib.ForceSymlink("final.config".format(config_dir),
+    nnet3_lib.force_symlink("final.config".format(config_dir),
                            "{0}/layer1.config".format(config_dir))
 
 def main():
