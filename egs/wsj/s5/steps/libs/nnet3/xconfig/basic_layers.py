@@ -721,7 +721,9 @@ class XconfigBasicLayer(XconfigLayerBase):
             elif nonlinearity == 'sreg':
                 line = ('component name={0}.{1}'
                         ' type=SpatialRegularizationComponent dim={2}'
+                        ' regularization-scale={3}'
                         ''.format(self.name, nonlinearity, output_dim,
+                            sreg_scale))
 
             else:
                 raise xparser_error("Unknown nonlinearity type:"
