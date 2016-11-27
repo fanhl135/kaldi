@@ -19,6 +19,7 @@ config_to_layer = {
         'relu-renorm-layer' : xlayers.XconfigBasicLayer,
         'sigmoid-layer' : xlayers.XconfigBasicLayer,
         'tanh-layer' : xlayers.XconfigBasicLayer,
+        'relu-renorm-sreg-layer' : xlayers.XconfigBasicLayer,
         'tdnn-relu-layer' : xlayers.XconfigTdnnLayer,
         'tdnn-relu-renorm-layer' : xlayers.XconfigTdnnLayer,
         'tdnn-sigmoid-layer' : xlayers.XconfigTdnnLayer,

@@ -129,8 +129,8 @@ if [ $stage -le 12 ]; then
   relu-renorm-layer name=tdnn4 input=Append(-3,0,3) dim=625
   relu-renorm-layer name=tdnn5 input=Append(-3,0,3) dim=625
   relu-renorm-layer name=tdnn6 input=Append(-3,0,3) dim=625
-  relu-renorm-layer name=tdnn7 input=Append(-3,0,3) dim=625
-
+  relu-renorm-sreg-layer name=tdnn7 input=Append(-3,0,3) dim=625
+  
   ## adding the layers for chain branch
   relu-renorm-layer name=prefinal-chain input=tdnn7 dim=625 target-rms=0.5
   output-layer name=output include-log-softmax=false dim=$num_targets max-change=1.5

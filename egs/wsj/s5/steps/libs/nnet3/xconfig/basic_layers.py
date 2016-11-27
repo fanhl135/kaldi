@@ -605,7 +605,8 @@ class XconfigBasicLayer(XconfigLayerBase):
                         'max-change' : 0.75,
                         'self-repair-scale' : 1.0e-05,
                         'target-rms' : 1.0,
-                        'ng-affine-options' : ''}
+                        'ng-affine-options' : '',
+                        'regularization-scale' : 0.2}
 
     def check_configs(self):
         if self.config['dim'] < 0:
@@ -614,6 +615,8 @@ class XconfigBasicLayer(XconfigLayerBase):
             raise xparser_error("self-repair-scale has invalid value {0}".format(self.config['self-repair-scale']), self.str())
         if self.config['target-rms'] < 0.0:
             raise xparser_error("target-rms has invalid value {0}".format(self.config['target-rms']), self.str())
+        if self.config['regularization-scale'] < 0.0:
+            raise xparser_error("regularization-scale has invalid value {0}".format(self.config['regularization-scale']), self.str())
 
     def output_name(self, auxiliary_output=None):
         # at a later stage we might want to expose even the pre-nonlinearity
@@ -667,7 +670,7 @@ class XconfigBasicLayer(XconfigLayerBase):
         target_rms = self.config['target-rms']
         max_change = self.config['max-change']
         ng_opt_str = self.config['ng-affine-options']
-
+        sreg_scale = self.config['regularization-scale']
         configs = []
         # First the affine node.
         line = ('component name={0}.affine'
@@ -714,6 +717,11 @@ class XconfigBasicLayer(XconfigLayerBase):
                         ' target-rms={3}'
                         ''.format(self.name, nonlinearity, output_dim,
                             target_rms))
+
+            elif nonlinearity == 'sreg':
+                line = ('component name={0}.{1}'
+                        ' type=SpatialRegularizationComponent dim={2}'
+                        ''.format(self.name, nonlinearity, output_dim,
 
             else:
                 raise xparser_error("Unknown nonlinearity type:"
