@@ -140,13 +140,16 @@ void DropoutComponent::Propagate(const ComponentPrecomputedIndexes *indexes,
   {
     // This const_cast is only safe assuming you don't attempt
     // to use multi-threaded code with the GPU.
-    CuVectorBase<BaseFloat> random_drop_vector(in.NumRows())
-    const_cast<CuRand<BaseFloat>&>(random_generator_).RandUniform(random_drop_vector);
+    CuMatrixBase<BaseFloat> random_drop_onerow_matrix(1,in.NumCols())
+    const_cast<CuRand<BaseFloat>&>(random_generator_).RandUniform(random_drop_onerow_matrix);
 
-    out->Add(-dropout); // now, a proportion "dropout" will be <0.0
-    out->ApplyHeaviside(); // apply the function (x>0?1:0).  Now, a proportion "dropout" will
+    random_drop_onerow_matrix->Add(-dropout); // now, a proportion "dropout" will be <0.0
+    random_drop_onerow_matrix->ApplyHeaviside(); // apply the function (x>0?1:0).  Now, a proportion "dropout" will
                           // be zero and (1 - dropout) will be 1.0.
-
+    for (int32 i = 0; i < in.NumCols(); i++)
+    {
+      out->CopyColsFromVec(random_drop_onerow_matrix)
+    }
     out->MulElements(in);
   }
 }
