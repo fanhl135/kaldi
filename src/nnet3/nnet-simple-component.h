@@ -87,9 +87,9 @@ class PnormComponent: public Component {
 // "Dropout: A Simple Way to Prevent Neural Networks from Overfitting".
 class DropoutComponent : public RandomComponent {
  public:
-  void Init(int32 dim, BaseFloat dropout_proportion = 0.0, dropout_per_frame_ = false);
+  void Init(int32 dim, BaseFloat dropout_proportion = 0.0, bool dropout_per_frame = false);
 
-  DropoutComponent(int32 dim, BaseFloat dropout = 0.0, dropout_per_frame_ = false) { Init(dim, dropout, dropout_per_frame_); }
+  DropoutComponent(int32 dim, BaseFloat dropout = 0.0, bool dropout_per_frame = false) { Init(dim, dropout, dropout_per_frame); }
 
   DropoutComponent(): dim_(0), dropout_proportion_(0.0), dropout_per_frame_(false) { }
 
@@ -125,8 +125,8 @@ class DropoutComponent : public RandomComponent {
   virtual std::string Info() const;
 
   void SetDropoutProportion(BaseFloat dropout_proportion, bool dropout_per_frame) {
-     dropout_proportion_ = dropout_proportion,
-     dropout_per_frame_ = dropout_per_frame,
+     dropout_proportion_ = dropout_proportion;
+     dropout_per_frame_ = dropout_per_frame;
       }
 
  private:

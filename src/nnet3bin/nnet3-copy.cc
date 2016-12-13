@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
     po.Register("set-dropout-proportion", &dropout, "Set dropout proportion "
                 "in all DropoutComponent to this value.");
     po.Register("set-dropout-per-frame", &dropout_per_frame, 
-                "set DropoutComponent by frame or by row.")
+                "set DropoutComponent by frame or by row.");
     po.Register("scale", &scale, "The parameter matrices are scaled"
                 " by the specified value.");
     po.Read(argc, argv);
