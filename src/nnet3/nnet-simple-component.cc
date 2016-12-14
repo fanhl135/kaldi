@@ -101,11 +101,17 @@ void DropoutComponent::InitFromConfig(ConfigLine *cfl) {
     cfl->GetValue("dropout-proportion", &dropout_proportion);
   cfl->GetValue("dropout-per-frame", &dropout_per_frame);
   if (!ok || cfl->HasUnusedValues() || dim <= 0 ||
-      dropout_proportion < 0.0 || dropout_proportion > 1.0 ||
-      dropout_per_frame != false || dropout_per_frame != true)
+      dropout_proportion < 0.0 || dropout_proportion > 1.0 )
     KALDI_ERR << "Invalid initializer for layer of type "
               << Type() << ": \"" << cfl->WholeLine() << "\"";
-  Init(dim, dropout_proportion, dropout_per_frame);
+  if(dropout_per_frame != false || dropout_per_frame != true)
+  {
+      Init(dim, dropout_proportion);
+  }
+  else
+  {
+      Init(dim, dropout_proportion, dropout_per_frame);
+  }
 }
 
 std::string DropoutComponent::Info() const {
@@ -178,10 +184,9 @@ void DropoutComponent::Read(std::istream &is, bool binary) {
   ReadBasicType(is, binary, &dim_);
   ExpectToken(is, binary, "<DropoutProportion>");
   ReadBasicType(is, binary, &dropout_proportion_);
-  ExpectToken(is, binary, "</DropoutComponent>");
   ExpectToken(is, binary, "<DropoutPerFrame>");
   ReadBasicType(is, binary, &dropout_per_frame_);
-  ExpectToken(is, binary, "</DropoutPerFrame>");
+  ExpectToken(is, binary, "</DropoutComponent>");
 }
 
 void DropoutComponent::Write(std::ostream &os, bool binary) const {
@@ -190,10 +195,9 @@ void DropoutComponent::Write(std::ostream &os, bool binary) const {
   WriteBasicType(os, binary, dim_);
   WriteToken(os, binary, "<DropoutProportion>");
   WriteBasicType(os, binary, dropout_proportion_);
-  WriteToken(os, binary, "</DropoutComponent>");
   WriteToken(os, binary, "<DropoutPerFrame>");
   WriteBasicType(os, binary, dropout_per_frame_);
-  WriteToken(os, binary, "</DropoutPerFrame>");
+  WriteToken(os, binary, "</DropoutComponent>");
 }
 
 void SumReduceComponent::Init(int32 input_dim, int32 output_dim)  {
