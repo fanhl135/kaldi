@@ -99,14 +99,15 @@ void DropoutComponent::InitFromConfig(ConfigLine *cfl) {
   bool dropout_per_frame = false;
   bool ok = cfl->GetValue("dim", &dim) &&
     cfl->GetValue("dropout-proportion", &dropout_proportion);
-  cfl->GetValue("dropout-per-frame", &dropout_per_frame);
+  bool ok2 = cfl->GetValue("dropout-per-frame", &dropout_per_frame);
   if (!ok || cfl->HasUnusedValues() || dim <= 0 ||
       dropout_proportion < 0.0 || dropout_proportion > 1.0 )
     KALDI_ERR << "Invalid initializer for layer of type "
               << Type() << ": \"" << cfl->WholeLine() << "\"";
-  if(dropout_per_frame != false || dropout_per_frame != true)
+  if( ! ok2 )
   {
-      Init(dim, dropout_proportion);
+      dropout_per_frame = false;
+      Init(dim, dropout_proportion, dropout_per_frame);
   }
   else
   {
